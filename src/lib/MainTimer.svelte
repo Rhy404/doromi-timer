@@ -1,8 +1,8 @@
 <script>
-    import { timerSettings, globalCancel } from '$lib/stores'; // Import stores
-    import { onMount, onDestroy } from 'svelte'; // Svelte lifecycle functions
+    import { timerSettings, globalCancel } from '$lib/stores'; 
+    import { onMount, onDestroy } from 'svelte';
 
-    // Reactive variables for timer display
+  
     let productivityDisplay = '00:00';
     let breakDisplay = '00:00';
     let intervalCount = 0;
@@ -10,13 +10,21 @@
     // Internal timer state
     let totalSecondsRemaining = 0;
     let isRunning = false;
-    let isPaused = false;
+    let isPaused = true;
     let currentPhase = 'productivity'; // 'productivity' or 'break'
     let timerInterval; // To hold the setInterval ID
 
-    // Store values (in seconds)
+    //Stores values (in seconds)
     let productivityDuration = 25 * 60;
     let breakDuration = 5 * 60;
+
+    let audioContextDing;
+    let productivityDingBuffer;
+    let breakDingBuffer;
+
+
+    let notificationPermission = 'default'; // 'default', 'granted', 'denied'
+
 
     // --- Svelte Store Subscriptions ---
     // Subscribe to timerSettings to get updated durations
@@ -37,7 +45,65 @@
         }
     });
 
-    // --- Helper Functions ---
+
+    async function initAudioContextDing() {
+        if (!audioContextDing) {
+            audioContextDing = new (window.AudioContext || window.webkitAudioContext)();
+            if (audioContextDing.state === 'suspended') {
+                await audioContextDing.resume();
+            }
+        }
+    }
+
+    async function loadSound(url) {
+        await initAudioContextDing(); // Ensure context is ready
+        const response = await fetch(url);
+        const arrayBuffer = await response.arrayBuffer();
+        return await audioContextDing.decodeAudioData(arrayBuffer);
+    }
+
+    function playSound(buffer) {
+        if (!audioContextDing || !buffer) return;
+
+        const source = audioContextDing.createBufferSource();
+        source.buffer = buffer;
+        source.connect(audioContextDing.destination);
+        source.start(0);
+    }
+
+    async function requestNotificationPermission() {
+        if (!('Notification' in window)) {
+            console.warn("This browser does not support desktop notification");
+            return;
+        }
+
+        if (notificationPermission === 'granted') return; // Already granted
+
+        try {
+            const permission = await Notification.requestPermission();
+            notificationPermission = permission;
+            console.log("Notification permission:", permission);
+        } catch (error) {
+            console.error("Error requesting notification permission:", error);
+            notificationPermission = 'denied';
+        }
+    }
+
+    function showTimerNotification(title, body, icon = '/favicon.png') {
+        if (notificationPermission === 'granted') {
+            new Notification(title, { body, icon });
+        } else if (notificationPermission === 'default') {
+            // If permission is default, try to request it on first notification attempt
+            requestNotificationPermission().then(() => {
+                if (notificationPermission === 'granted') {
+                    new Notification(title, { body, icon });
+                }
+            });
+        }
+    }
+
+
+
     function formatTime(seconds) {
         const minutes = Math.floor(seconds / 60);
         const remainingSeconds = seconds % 60;
@@ -68,14 +134,20 @@
                 clearInterval(timerInterval);
                 isRunning = false;
                 
+       
                 if (currentPhase === 'productivity') {
+                    playSound(productivityDingBuffer);
+                    showTimerNotification('Productivity Time Up!', 'Time to take a break. Interval completed!');
                     intervalCount++; // Increment count after a full productivity cycle
                     currentPhase = 'break';
                     totalSecondsRemaining = breakDuration;
                 } else { // currentPhase === 'break'
+                    playSound(breakDingBuffer);
+                    showTimerNotification('Break Time Up!', 'Time to get back to work!');
                     currentPhase = 'productivity';
                     totalSecondsRemaining = productivityDuration;
                 }
+
                 
                 // Automatically start the next phase
                 if (totalSecondsRemaining > 0) {
@@ -86,15 +158,20 @@
                 }
             }
             updateDisplay();
-        }, 1000); // Update every second
+        }, 1000); //Updates every second
     }
 
     function handleStart() {
+        // NEW: Request notification permission on first start click
+        if (notificationPermission === 'default') {
+            requestNotificationPermission();
+        }
+
         // If starting for the very first time or after a full reset
         if (totalSecondsRemaining === 0 && !isRunning && !isPaused) {
             totalSecondsRemaining = productivityDuration;
             currentPhase = 'productivity';
-            intervalCount = 0; // Reset count on fresh start
+            intervalCount = 0; // Resets count on fresh start
         }
         startCountdown();
     }
@@ -112,9 +189,9 @@
         isRunning = false;
         isPaused = false;
         totalSecondsRemaining = 0;
-        currentPhase = 'productivity'; // Reset to productivity phase
+        currentPhase = 'productivity'; // Resetss to productivity phase
         intervalCount = 0;
-        resetDisplayToDefaults(); // Reset display to 00:00
+        resetDisplayToDefaults(); //Resets display to 00:00
         console.log('Timer cancelled and reset.');
     }
 
@@ -134,15 +211,34 @@
     }
 
     // --- Lifecycle Hooks ---
-    onMount(() => {
+    onMount(async () => {
         // Initialize display with default productivity and break times when component mounts
         productivityDisplay = formatTime(productivityDuration);
         breakDisplay = formatTime(breakDuration);
+
+
+        try {
+            productivityDingBuffer = await loadSound('/sounds/productivityTimerDone.mp3');
+            breakDingBuffer = await loadSound('/sounds/breakTimerDone.mp3');
+            console.log('Ding sounds loaded.');
+        } catch (error) {
+            console.error('Failed to load ding sounds:', error);
+        }
+
+        // Check initial notification permission status
+        if ('Notification' in window) {
+            notificationPermission = Notification.permission;
+        }
     });
 
     onDestroy(() => {
         // Clean up interval when component is destroyed to prevent memory leaks
         clearInterval(timerInterval);
+       
+        if (audioContextDing) {
+            audioContextDing.close();
+            audioContextDing = null;
+        }
     });
 </script>
 
@@ -156,7 +252,7 @@
         align-items: center;
         justify-content: space-between;
         min-height: 340px;
-        box-shadow: 10px 10px 0 #1a0a20; /* Re-added shadow */
+        box-shadow: 10px 10px 0 #1a0a20; 
     }
 
     .interval-display {
@@ -165,10 +261,9 @@
         padding: 10px;
         font-size: 18px;
         color: #764c85;
-        font-family: "Kumbh Sans", monospace;
-        font-weight: 600;
+        font-family: 'Kumbh Sans', monospace; 
         margin-bottom: 5px;
-        box-shadow: 5px 5px 0 #572769; /* Re-added shadow */
+        box-shadow: 5px 5px 0 #572769; 
     }
 
     .timer-display-container {
@@ -180,12 +275,11 @@
     .timer-display {
         text-align: center;
         color: #ffffff;
-        font-weight: 200;
     }
 
     .timer-display span {
         font-size: 45px;
-        font-family: "Kumbh Sans", monospace;
+        font-family: 'Kumbh Sans', monospace;
         display: block;
         line-height: 1.1;
     }
@@ -193,6 +287,7 @@
     .separator {
         font-size: 30px;
         color: #ffffff;
+        font-family: 'Kumbh Sans', monospace; 
         margin: 10px 0;
     }
 
@@ -217,7 +312,8 @@
         transition:
             background-color 0.2s ease,
             transform 0.1s ease;
-        box-shadow: 3px 4px 0 #9e9e9e; /* Re-added shadow */
+        box-shadow: 3px 4px 0 #9e9e9e; 
+        font-family: 'Kumbh Sans', sans-serif; 
     }
 
     .control-button:hover {
@@ -228,26 +324,21 @@
     .control-button:active {
         transform: translateY(0);
     }
-
+    
     .icon-nudge-play {
         position: relative;
+        bottom: 2px; 
         left: 1px;
-        bottom: 2px;
-        top:0.07px;
-        font-size: 26px;
     }
 
     .icon-nudge-pause {
         position: relative;
-        left: 1px;
-        bottom: 2.7px;
-        font-size: 30px;
+        bottom: 2px;
+        font-size: 28px;
     }
 
     .icon-nudge-cancel {
         position: relative;
-        left: 1px; 
-        font-size: 25px;
     }
 </style>
 
@@ -267,14 +358,12 @@
 	<div class="controls">
 		<button class="control-button" on:click={handleStart}>
             <span class="icon-nudge-play">▶</span>
-        </button> 
-
+        </button>
 		<button class="control-button" on:click={handlePause}>
             <span class="icon-nudge-pause">⏸</span>
-        </button>
-
+        </button> 
 		<button class="control-button" on:click={handleCancel}>
             <span class="icon-nudge-cancel">✖</span>
-        </button>
+        </button> 
 	</div>
 </div>

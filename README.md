@@ -81,6 +81,7 @@ Follow these steps to get a local copy of the project up and running on your mac
 *   **Global Volume Slider:** Use the slider below the noise blocks to adjust the overall volume of all active noises. Volume changes will fade smoothly.
 *   **Smooth Toggle Button:** Click the "Smooth" button to toggle between "raw" and "tonally smoothed" versions of the noises. The smoothed version will have reduced harshness, ideal for relaxation.
 *   **"No Noise" Option:** Click the block with the red diagonal line to instantly stop all playing noises.
+*   **"Desktop Notifications:** If granted permission by the user for notifications, after each productivity timer or break timer is completed, there is a sound chime along with a notification informing that. If permission not granted, the user will still be able to hear the sound chime.
 
 ### Navigating Tips
 *   In the "Tips" panel (below the Noise Mixer), use the `◀` and `▶` arrows to cycle through helpful tips on noise mixing and usage.
@@ -89,7 +90,7 @@ Follow these steps to get a local copy of the project up and running on your mac
 
 *   **Custom Volume for Each Noise:** Individual volume sliders for each color noise.
 *   **Sound Selection:** Allow users to choose different sound textures for each color noise.
-*   **Timer Notifications:** Browser notifications or custom alert sounds when a timer phase ends.
+
 
 ## License
 
