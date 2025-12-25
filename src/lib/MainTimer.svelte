@@ -8,13 +8,13 @@
     let intervalCount = 0;
 
     // Internal timer state
-    let totalSecondsRemaining = 0;
+    let totalSecondsRemaining = 0; // This will hold the actual countdown
     let isRunning = false;
     let isPaused = true;
     let currentPhase = 'productivity'; // 'productivity' or 'break'
     let timerInterval; // To hold the setInterval ID
 
-    //Stores values (in seconds)
+    // Stores values (in seconds) - these are updated by the timerSettings store
     let productivityDuration = 25 * 60;
     let breakDuration = 5 * 60;
 
@@ -22,22 +22,20 @@
     let productivityDingBuffer;
     let breakDingBuffer;
 
-
     let notificationPermission = 'default'; // 'default', 'granted', 'denied'
 
 
     // --- Svelte Store Subscriptions ---
-    // Subscribe to timerSettings to get updated durations
     timerSettings.subscribe(settings => {
         productivityDuration = settings.productivity;
         breakDuration = settings.break;
-        // If timer is not running, update display immediately when settings change
-        if (!isRunning && !isPaused) {
-            resetTimer(); // Reset to new settings
+        // If the timer is not running, and not paused, update its internal state to new settings
+        // This ensures if user changes settings while timer is stopped, it updates
+        if (!isRunning && isPaused) { // Only reset if currently stopped/paused
+            resetTimerState(); 
         }
     });
 
-    // Subscribe to globalCancel to react to global reset
     globalCancel.subscribe(value => {
         if (value === true) {
             handleCancel();
@@ -103,7 +101,6 @@
     }
 
 
-
     function formatTime(seconds) {
         const minutes = Math.floor(seconds / 60);
         const remainingSeconds = seconds % 60;
@@ -134,7 +131,6 @@
                 clearInterval(timerInterval);
                 isRunning = false;
                 
-       
                 if (currentPhase === 'productivity') {
                     playSound(productivityDingBuffer);
                     showTimerNotification('Productivity Time Up!', 'Time to take a break. Interval completed!');
@@ -147,33 +143,43 @@
                     currentPhase = 'productivity';
                     totalSecondsRemaining = productivityDuration;
                 }
-
                 
                 // Automatically start the next phase
                 if (totalSecondsRemaining > 0) {
-                    startCountdown();
+                    startCountdown(); // Recurse to start next phase
                 } else {
-                    // This case should ideally not happen if durations are > 0
-                    resetTimer();
+                    // This handles scenarios where a duration (e.g., break) is set to 0.
+                    // If the next phase duration is 0, we immediately transition to the one after that, or reset.
+                    // For simplicity, let's just reset to a fresh start if a duration is 0.
+                    handleCancel(); 
                 }
             }
             updateDisplay();
-        }, 1000); //Updates every second
+        }, 1000); // Updates every second
     }
 
     function handleStart() {
-        // NEW: Request notification permission on first start click
         if (notificationPermission === 'default') {
             requestNotificationPermission();
         }
 
-        // If starting for the very first time or after a full reset
-        if (totalSecondsRemaining === 0 && !isRunning && !isPaused) {
-            totalSecondsRemaining = productivityDuration;
-            currentPhase = 'productivity';
-            intervalCount = 0; // Resets count on fresh start
+        if (isRunning) return; // If already running, do nothing
+
+        if (isPaused) { // If currently paused, just resume
+            isPaused = false;
+            startCountdown();
+            return;
         }
-        startCountdown();
+
+        // If not running and not paused (i.e., a fresh start after component mount or full cancel)
+        // Ensure all state is correctly initialized to start a new productivity phase
+        if (totalSecondsRemaining !== productivityDuration || currentPhase !== 'productivity' || intervalCount !== 0) {
+             // This condition means the timer is NOT in a pristine 'ready to start productivity' state.
+             // So, force a full reset of the timer's internal state before starting.
+             resetTimerState();
+        }
+        
+        startCountdown(); // Start the countdown (will be productivity phase due to resetTimerState)
     }
 
     function handlePause() {
@@ -185,37 +191,31 @@
     }
 
     function handleCancel() {
-        clearInterval(timerInterval);
-        isRunning = false;
-        isPaused = false;
-        totalSecondsRemaining = 0;
-        currentPhase = 'productivity'; // Resetss to productivity phase
-        intervalCount = 0;
-        resetDisplayToDefaults(); //Resets display to 00:00
+        resetTimerState(); // Reset all internal timer state variables
+        resetDisplayToDefaults(); // Ensure display shows 00:00 after a full cancel
         console.log('Timer cancelled and reset.');
     }
 
-    function resetTimer() {
+    // NEW: Centralized function to reset all core timer state variables
+    function resetTimerState() {
         clearInterval(timerInterval);
         isRunning = false;
-        isPaused = false;
-        totalSecondsRemaining = productivityDuration; // Default to productivity time
-        currentPhase = 'productivity';
+        isPaused = true; // Timer is paused when reset
+        totalSecondsRemaining = productivityDuration; // Set to current productivity duration from store
+        currentPhase = 'productivity'; // Always reset to productivity phase
         intervalCount = 0;
-        updateDisplay(); // Update display with new default
+        updateDisplay(); // Update display to reflect these initial values (e.g., 25:00 X 05:00)
     }
 
-    function resetDisplayToDefaults() {
+    function resetDisplayToDefaults() { // Only for showing 00:00 after a full cancel
         productivityDisplay = '00:00';
         breakDisplay = '00:00';
     }
 
     // --- Lifecycle Hooks ---
     onMount(async () => {
-        // Initialize display with default productivity and break times when component mounts
-        productivityDisplay = formatTime(productivityDuration);
-        breakDisplay = formatTime(breakDuration);
-
+        // Initialize the timer state from store defaults when component mounts
+        resetTimerState(); // This will set totalSecondsRemaining to productivityDuration and update display
 
         try {
             productivityDingBuffer = await loadSound('/sounds/productivityTimerDone.mp3');
@@ -260,10 +260,12 @@
         border-radius: 8px;
         padding: 10px;
         font-size: 18px;
+        text-align: center;
         color: #764c85;
         font-family: 'Kumbh Sans', monospace; 
         margin-bottom: 5px;
         box-shadow: 5px 5px 0 #572769; 
+        min-width: 160px;
     }
 
     .timer-display-container {
@@ -275,6 +277,7 @@
     .timer-display {
         text-align: center;
         color: #ffffff;
+        min-width: 160px;
     }
 
     .timer-display span {
@@ -282,6 +285,7 @@
         font-family: 'Kumbh Sans', monospace;
         display: block;
         line-height: 1.1;
+        font-variant-numeric: tabular-nums;
     }
 
     .separator {
